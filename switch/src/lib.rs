@@ -53,14 +53,14 @@ pub fn run(cmd: SwitchCommandCmd, version: VersionInfo) -> error::Result<()> {
     let (signal, exit) = exit_future::signal();
 
     let work_manger = if cmd.enable_work_manager || cmd.mine {
-        Some(yee_mining2::start_work_manager(&rpc_config)?)
+        Some(yee_mining::start_work_manager(&rpc_config)?)
     } else {
         None
     };
 
     if cmd.mine {
         let work_manager = work_manger.clone().expect("qed");
-        yee_mining2::start_mining(work_manager, &rpc_config).map_err(|e| "mining error")?;
+        yee_mining::start_mining(work_manager, &rpc_config).map_err(|e| "mining error")?;
     }
 
     let handler = || {

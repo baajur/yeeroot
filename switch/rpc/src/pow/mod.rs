@@ -133,10 +133,7 @@ impl<WM> Pow<WM> where
             Some(r) => r,
             None => return None
         };
-
-        let extra_data = bytes[33..72].to_vec();
-
-        let nonce = &bytes[72..80];
+        let nonce = &bytes[32..40];
         let mut buf = [0u8; 8];
         for i in 0..8 {
             buf[i] = nonce[7 - i];
@@ -146,7 +143,8 @@ impl<WM> Pow<WM> where
             Err(_e) => return None
         };
 
-        let source = (merkle_root.clone(), extra_data.clone(), nonce);
+        let extra_data = bytes[41..80].to_vec();
+        let source = (merkle_root.clone(), nonce, extra_data.clone());
         let buf = source.encode();
         debug!("submit work,data: {:?}", hex::encode(buf));
         let source_hash = WM::Hashing::hash_of(&source);
