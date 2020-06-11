@@ -44,7 +44,7 @@ pub trait PowApi<Hash> {
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct Job<Hash> {
     pub merkle_root: Hash,
-    pub extra_data: Vec<u8>,
+    // pub extra_data: Vec<u8>,
     pub target: PowTarget,
 }
 
@@ -87,7 +87,7 @@ impl<WM> PowApi<<WM::Hashing as HashT>::Output> for Pow<WM> where
             debug!("work exist {:?}", work);
         }
 
-        Ok(Job { merkle_root: work.merkle_root, extra_data: work.extra_data, target: work.target })
+        Ok(Job { merkle_root: work.merkle_root, target: work.target })
     }
 
     fn submit_work(&self, data: String) -> BoxFuture<()> {
