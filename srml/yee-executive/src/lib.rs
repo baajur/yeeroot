@@ -366,7 +366,7 @@ impl<
 	/// side-effects; it merely checks whether the transaction would panic if it were included or not.
 	///
 	/// Changes made to the storage should be discarded.
-	pub fn validate_transaction(uxt: Block::Extrinsic, shard_count: u16) -> TransactionValidity {
+	pub fn validate_transaction(uxt: Block::Extrinsic, cur_shard: u16, shard_count: u16) -> TransactionValidity {
 		// Note errors > 0 are from ApplyError
 		const UNKNOWN_ERROR: i8 = -127;
 		const MISSING_SENDER: i8 = -20;
@@ -399,6 +399,12 @@ impl<
 			}
 			if *index > expected_index + As::sa(256) {
 				return TransactionValidity::Unknown(ApplyError::Future as i8);
+			}
+
+			// check sender's shard
+			let shard_num = yee_sharding_primitives::utils::shard_num_for(sender, shard_count).unwrap();
+			if shard_num != cur_shard {
+				return TransactionValidity::Invalid(ApplyError::BadShard as i8);
 			}
 
 			let mut deps = Vec::new();
