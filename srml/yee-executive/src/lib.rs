@@ -52,6 +52,7 @@ mod internal {
 		Future,
 		CantPay,
 		FullBlock,
+		BadShard,
 	}
 
 	pub enum ApplyOutcome {
@@ -173,7 +174,7 @@ impl<
             let bytes = tx.encode();
             let is_signed = tx.is_signed();
             let hash = Blake2Hasher::hash(bytes.as_slice());
-            match Self::apply_extrinsic_no_note_with_proof(tx) {
+            match Self::apply_extrinsic_no_note_with_proof(tx, cur_shard, shard_count) {
                 Ok(ApplyOutcome::Success) => {
                     if is_signed == Some(true) {
                         let ex_type = OriginExtrinsic::<H256, u128>::decode_type(bytes.clone());
@@ -236,13 +237,14 @@ impl<
 	pub fn apply_extrinsic(uxt: Block::Extrinsic) -> result::Result<ApplyOutcome, ApplyError> {
 		let encoded = uxt.encode();
 		let encoded_len = encoded.len();
-		match Self::apply_extrinsic_with_len(uxt, encoded_len, Some(encoded)) {
+		match Self::apply_extrinsic_with_len(uxt, encoded_len, Some(encoded), None) {
 			Ok(internal::ApplyOutcome::Success) => Ok(ApplyOutcome::Success),
 			Ok(internal::ApplyOutcome::Fail(_)) => Ok(ApplyOutcome::Fail),
 			Err(internal::ApplyError::CantPay) => Err(ApplyError::CantPay),
 			Err(internal::ApplyError::BadSignature(_)) => Err(ApplyError::BadSignature),
 			Err(internal::ApplyError::Stale) => Err(ApplyError::Stale),
 			Err(internal::ApplyError::Future) => Err(ApplyError::Future),
+			Err(internal::ApplyError::BadShard) => Err(ApplyError::BadShard),
 			Err(internal::ApplyError::FullBlock) => Err(ApplyError::FullBlock),
 		}
 	}
@@ -250,31 +252,33 @@ impl<
     /// Apply an extrinsic inside the block execution function.
     fn apply_extrinsic_no_note(uxt: Block::Extrinsic) {
         let l = uxt.encode().len();
-        match Self::apply_extrinsic_with_len(uxt, l, None) {
+        match Self::apply_extrinsic_with_len(uxt, l, None, None) {
             Ok(internal::ApplyOutcome::Success) => (),
             Ok(internal::ApplyOutcome::Fail(e)) => runtime_io::print(e),
             Err(internal::ApplyError::CantPay) => panic!("All extrinsics should have sender able to pay their fees"),
             Err(internal::ApplyError::BadSignature(_)) => panic!("All extrinsics should be properly signed"),
             Err(internal::ApplyError::Stale) | Err(internal::ApplyError::Future) => panic!("All extrinsics should have the correct nonce"),
+			Err(internal::ApplyError::BadShard) => runtime_io::print("bad shard extrinsic"),
             Err(internal::ApplyError::FullBlock) => panic!("Extrinsics should not exceed block limit"),
         }
     }
 
     /// Apply an extrinsic inside the block execution function.
-    fn apply_extrinsic_no_note_with_proof(uxt: Block::Extrinsic) -> result::Result<ApplyOutcome, ApplyError> {
+    fn apply_extrinsic_no_note_with_proof(uxt: Block::Extrinsic, cur_shard: u16, shard_count: u16) -> result::Result<ApplyOutcome, ApplyError> {
         let l = uxt.encode().len();
-        match Self::apply_extrinsic_with_len(uxt, l, None) {
+        match Self::apply_extrinsic_with_len(uxt, l, None, Some((cur_shard, shard_count))) {
             Ok(internal::ApplyOutcome::Success) => Ok(ApplyOutcome::Success),
             Ok(internal::ApplyOutcome::Fail(e)) => {runtime_io::print(e); Ok(ApplyOutcome::Fail)},
             Err(internal::ApplyError::CantPay) => panic!("All extrinsics should have sender able to pay their fees"),
             Err(internal::ApplyError::BadSignature(_)) => panic!("All extrinsics should be properly signed"),
             Err(internal::ApplyError::Stale) | Err(internal::ApplyError::Future) => panic!("All extrinsics should have the correct nonce"),
+			Err(internal::ApplyError::BadShard) => panic!("bad shard extrinsic"),
             Err(internal::ApplyError::FullBlock) => panic!("Extrinsics should not exceed block limit"),
         }
     }
 
 	/// Actually apply an extrinsic given its `encoded_len`; this doesn't note its hash.
-	fn apply_extrinsic_with_len(uxt: Block::Extrinsic, encoded_len: usize, to_note: Option<Vec<u8>>) -> result::Result<internal::ApplyOutcome, internal::ApplyError> {
+	fn apply_extrinsic_with_len(uxt: Block::Extrinsic, encoded_len: usize, to_note: Option<Vec<u8>>, shard_info: Option<(u16, u16)>) -> result::Result<internal::ApplyOutcome, internal::ApplyError> {
 		let origin_data = uxt.encode();
 		// Verify the signature is good.
 		let xt = uxt.check(&Default::default()).map_err(internal::ApplyError::BadSignature)?;
@@ -297,7 +301,12 @@ impl<
 			Payment::make_payment(sender, encoded_len).map_err(|_| internal::ApplyError::CantPay)?;
 
 			// check sender's sharding
-			// todo
+			if let Some((cur_shard, shard_count)) = shard_info {
+				let shard_num = yee_sharding_primitives::utils::shard_num_for(sender, shard_count).unwrap();
+				if shard_num != cur_shard {
+					return Err(internal::ApplyError::BadShard);
+				}
+			}
 
 			// AUDIT: Under no circumstances may this function panic from here onwards.
 
